@@ -1,4 +1,4 @@
-SELECTOR_REPORT_CONSULT="li[id$='pm_consulta'] a"
+SELECTOR_REPORT_CONSULT="li[id$='pm_consulta'] a[href='#']"
 ROWS_TABLE_REPORT_CONSULT=[
   "Comercio",
   "Fecha",
@@ -19,6 +19,11 @@ SELECTORS_REPORT_CONSULT_OPTIONS={
     "selector": "li[id$='pm_consulta_admon_01'] a",
     "url": "https://ftpayment.co/FTAdmon_Payment-web/pages/consulta/consultaConsolidada01.xhtml",
     "url_fragment": "consultaConsolidada01.xhtml"
+  },
+  "Registros Por Fecha":{ 
+    "selector": "li[id$='pm_consulta_admon_05'] a",
+    "url": "https://ftpayment.co/FTAdmon_Payment-web/pages/consulta/consultaDetallado01.xhtml",
+    "url_fragment": "consultaDetallado01.xhtml"
   }
 }
 

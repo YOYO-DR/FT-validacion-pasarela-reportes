@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime
 from time import sleep
+from telegram_bot import TelegramBot
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError, expect
 from constans import IGNORE_COMERCIOS_VALIDATIONS, MAX_VALUES_PER_PAGE, SELECTOR_REPORT_CONSULT, SELECTORS_REPORT_CONSULT_OPTIONS, SELECTOR_WAIT_LOADING, ROWS_TABLE_REPORT_CONSULT
 
@@ -247,13 +248,17 @@ class ValidationPortalPDPReports(BaseFlowTask):
     """
     logger.info(f"Abriendo la vista de reporte: {report_name}")
 
-    # Hacer clic en el menú de consulta de reportes
-    self.click_first_visible_match(SELECTOR_REPORT_CONSULT)
-
     # Abrir opcion de reporte específica
     report_option = SELECTORS_REPORT_CONSULT_OPTIONS.get(report_name)
     if not report_option:
       raise ValueError(f"El reporte '{report_name}' no está definido en SELECTORS_REPORT_CONSULT_OPTIONS.")
+    
+    # Hacer clic en el menú de consulta de reportes
+    # Validar si el boton de consulta esta abierto
+    button_consult_visible = self.page.locator(SELECTOR_REPORT_CONSULT)
+    # Validar si contiene la clase active-menu
+    if "active-menu" not in button_consult_visible.get_attribute("class"):
+      self.click_first_visible_match(SELECTOR_REPORT_CONSULT)
     
     self.click_first_visible_match(report_option["selector"])
     # Esperar a que se cargue la URL del reporte
@@ -334,7 +339,8 @@ class ValidationPortalPDPReports(BaseFlowTask):
       # Tomar captura de pantalla de la tabla
       # En la etiqueta bodi, poner un zoom de 0.6 para que se vea toda la tabla en la captura
       self.page.evaluate("document.body.style.zoom='0.6'")
-      screenshot_path = table_locator.screenshot(path= os.path.join(self.screenshot_dir, f"table_page_{page + 1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"))
+      screenshot_path = os.path.join(self.screenshot_dir, f"table_page_{page + 1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+      table_locator.screenshot(path=screenshot_path)
       screenshots_table.append(screenshot_path)
       # Restaurar el zoom al 100%
       self.page.evaluate("document.body.style.zoom='1'")
@@ -370,11 +376,169 @@ class ValidationPortalPDPReports(BaseFlowTask):
         continue
       aprobadas = int(row["# Aprobadas"].replace(",", "") or "0")
       fallidas = int(row["# Fallidas"].replace(",", "") or "0")
+      rechazadas = int(row["# Rechazada"].replace(",", "") or "0")
 
-      if fallidas > aprobadas:
+      if fallidas > aprobadas or rechazadas > aprobadas:
         comersios_with_issues.append(comercio)
     
     logger.info("Validación exitosa: No hay más transacciones Fallidas que Aprobadas por comercio.")
+
+    return comersios_with_issues
+  
+  def validate_state_last_time(self, comercio_name: str, states_to_check: list) -> bool:
+    """
+    Valida que las transacciones no finales, no finales efectivo y no reportadas
+    no hayan tardado más de 60 minutos en resolverse.
+
+    :param comercio: Nombre del comercio a validar.
+    """
+    # Validar que haya almenos un estado a validar
+    if not states_to_check:
+      logger.info("No hay estados definidos para validar en validate_state_last_time.")
+      return True
+    # Crear lsita de estados segun su equivalencia con el select de estados del reporte por fecha
+    estados_equivalentes = {
+      "# No Finales": "NO FINALES",
+      "# No Finales EF": "NO FINALES EFE",
+      "# No Reportaadas": "NO REPORTADO"
+    }
+    # Navegar a la vista de Registro Por Fecha
+    self.open_report_view("Registros Por Fecha")
+
+    # Poner el nombre del comercio en mayusculas
+    comercio_name_upper = comercio_name.upper()
+
+    # Seleccionar el comercio en el filtro
+    # Abrir el dropdown de comercios
+    self.click_first_visible_match("[id$='form:txtComercio_label']")
+
+    # Esperar 1 segundo
+    sleep(1)
+
+    # Hacer clic en el comercio específico
+    self.click_first_visible_match(f"[data-label='{comercio_name_upper}']")
+
+    # Dar una espera de 2 segundos
+    sleep(2)
+
+    # Recorrer los estados a validar para cada consulta a ejecutar
+    for state in states_to_check:
+      state_equiv = estados_equivalentes.get(state)
+      if not state_equiv:
+        logger.warning(f"No se encontró una equivalencia para el estado: {state}")
+        continue
+      # Seleccionar el estado en el filtro
+      # Abrir el dropdown de estados
+      self.click_first_visible_match("[id$='form:txtEstado_label']")
+
+      # Hacer clic en el estado específico
+      self.click_first_visible_match(f"[data-label='{state_equiv}']")
+
+      # Dar una espera de 1 segundo
+      sleep(1)
+
+      # Ejecutar la consulta
+      self.click_first_visible_match("button span.fa-search")
+
+      # Esperar a que cargue la tabla de resultados
+      self.wait_loading()
+
+      # obtener la cantidad de registros
+      paginator_text = self.page.locator(".ui-paginator-current").inner_text()
+      match = re.search(r'\((\d+)\s+registros\)', paginator_text)
+      num_rows = 0
+      if match:
+        num_rows = int(match.group(1))
+      if num_rows == 0:
+        logger.info(f"No hay registros para el comercio '{comercio_name}' en el estado '{state_equiv}'.")
+        continue
+
+      logger.info(f"Validando tiempo de resolución para el comercio '{comercio_name}' en el estado '{state_equiv}'...")
+
+      if num_rows > 7:
+        logger.info(f"El número de registros ({num_rows}) es mayor a 7, yendo a la última página...")
+        # Ir a la última página
+        self.click_first_visible_match(".ui-paginator-last[aria-label='Last Page']")
+
+      # Obtener la información de la ultima fila de la tabla
+      table_locator = self.page.locator(".ui-datatable-tablewrapper table")
+
+      rows = table_locator.locator("tbody tr")
+      # Convertir el row en un diccionario segun las columnas definidas
+      row_count = rows.count()
+      if row_count == 0:
+        logger.info(f"No hay registros para el comercio '{comercio_name}' en el estado '{state_equiv}'.")
+        continue
+      last_row = rows.nth(row_count - 1)
+      # Obtener la columna de tiempo transcurrido
+      time_elapsed_text = last_row.locator("td").nth(10).inner_text().strip()
+
+      # Convertir a horas y minutos (formato 02:10:14 P.M.)
+      # Eliminar puntos de A.M./P.M. para que coincida con %p
+      time_elapsed_text = time_elapsed_text.replace(".", "")
+      if time_elapsed_text == "":
+        # Recorrer la fila para ver si hay un valor en la columna de hora transcurrido
+        for i in range(11):
+          cell_text = last_row.locator("td").nth(i).inner_text().strip()
+          if cell_text != "":
+            if "PM" in cell_text or "AM" in cell_text:
+              try:
+                time_elapsed_text = datetime.strptime(cell_text, "%I:%M:%S %p")
+              except Exception:
+                logger.warning(f"No se pudo convertir el tiempo transcurrido '{cell_text}' a formato de hora.")
+                break
+      # Si no se logra validar el tiempo transcurrido, registrar advertencia y continuar
+      if time_elapsed_text == "":
+        logger.warning(f"No se encontró un valor válido de tiempo transcurrido para el comercio '{comercio_name}' en el estado '{state_equiv}'.")
+        return True
+      
+      ultima_hora = datetime.strptime(time_elapsed_text, "%I:%M:%S %p")
+
+      # Calcular el tiempo transcurrido en minutos desde la ultima hora hasta ahora
+      now = datetime.now()
+      tiempo_transcurrido = (now - ultima_hora.replace(year=now.year, month=now.month, day=now.day)).total_seconds() / 60
+
+      if tiempo_transcurrido > 60:
+        logger.warning(f"El comercio '{comercio_name}' tiene transacciones en estado '{state_equiv}' sin resolver por más de 60 minutos.")
+        return True
+      
+    return False
+
+
+  def validate_non_final_transactions(self, data_table: list):
+    """
+    Valida las transacciones no finales/no finales efectivo por comercio.
+
+    :param data_table: Lista de diccionarios con los datos extraídos.
+    """
+    logger.info("Validando transacciones no finales/no finales efectivo por comercio...")
+    comersios_with_issues = []
+
+    for row in data_table:
+      comercio_name = row["Comercio"]
+      # Obtener la cantidad de no finales y no finales efectivo
+      no_finales = int(row["# No Finales"].replace(",", "") or "0")
+      no_finales_efectivo = int(row["# No Finales EF"].replace(",", "") or "0")
+      no_reported = int(row["# No Reportaadas"].replace(",", "") or "0")
+
+      # Validar si hay mas de 1 transacción no final efectivo
+      suma_estados = no_finales + no_finales_efectivo + no_reported
+      if suma_estados > 0:
+        states_to_check = []
+        if no_finales > 0:
+          states_to_check.append("# No Finales")
+        if no_finales_efectivo > 0:
+          states_to_check.append("# No Finales EF")
+        if no_reported > 0:
+          states_to_check.append("# No Reportaadas")
+
+        if self.validate_state_last_time(comercio_name=comercio_name, states_to_check=states_to_check):
+          comersios_with_issues.append(comercio_name)
+    
+    if len(comersios_with_issues) == 0:
+      logger.info("Validación exitosa: Transacciones no finales/no finales efectivo dentro del tiempo esperado.")
+    else:
+      logger.warning("Se encontraron comercios con transacciones no finales/no finales efectivo fuera del tiempo esperado.")
 
     return comersios_with_issues
 
@@ -390,8 +554,37 @@ class ValidationPortalPDPReports(BaseFlowTask):
     
     logger.info(f"Se extrajeron {len(data_table)} filas del reporte.")
 
-    # 1. Validar que no hayan más transacciones Fallidas que Aprobadas por comercio
-    self.validate_failures_vs_approvals(data_table)
+    # Variable para armar mensaje de resultados
+    message_results = ""
+    # 1. Validar que no hayan más transacciones Fallidas/Rechazadas que Aprobadas por comercio
+    comercios_issues_fa_ap = self.validate_failures_vs_approvals(data_table)
+
+    # 2. Validar las transacciones no finales, no finales efectivo y no reportadas por comercio
+    comercios_issues_non_final = self.validate_non_final_transactions(data_table)
+    
+    # 3. Armar mensaje de resultados
+    # Mensaje de resultados para las falidas vs aprobadas
+    if not comercios_issues_fa_ap:
+      logger.info("No se encontraron comercios con más transacciones Fallidas/Rechazadas que Aprobadas.")
+      message_results += "✅ No se encontraron comercios con más transacciones Fallidas/Rechazadas que Aprobadas.\n"
+    else:
+      logger.warning("Se encontraron comercios con más transacciones Fallidas/Rechazadas que Aprobadas.")
+      message_results += "❌ Comercios con más transacciones Fallidas/Rechazadas que Aprobadas:\n"
+      for comercio in comercios_issues_fa_ap:
+        message_results += f' - {comercio} \n'
+    
+    # Mensaje de resultados para las no finales
+    if not comercios_issues_non_final:
+      logger.info("No se encontraron comercios con transacciones no finales/no finales efectivo fuera del tiempo esperado.")
+      message_results += "✅ No se encontraron comercios con transacciones no finales, no finales efectivo y sin reportar fuera del tiempo esperado.\n"
+    else:
+      logger.warning("Se encontraron comercios con transacciones no finales/no finales efectivo fuera del tiempo esperado.")
+      message_results += "❌ Comercios con transacciones no finales, no finales efectivo y sin reportar fuera del tiempo esperado:\n"
+      for comercio in comercios_issues_non_final:
+        message_results += f' - {comercio} \n'
+
+    return message_results
+
 
   def validate_portal_pdp(self):
     """
@@ -405,29 +598,29 @@ class ValidationPortalPDPReports(BaseFlowTask):
     data_table, screenshots_table = self.exe_consult_and_ext_data()
 
     # Validar información extraída
-    self.validate_report_data(data_table)
+    message_validation = self.validate_report_data(data_table)
+    if message_validation == "":
+      message_validation = "✅ Todas las validaciones del reporte pasaron correctamente. No se encontraron evidencias."
+
+    # Enviar mensaje con resultados por telegram
+    logger.info("Validación del reporte completada. Preparando resultados...")
+    logger.info("Resultados de la validación:\n" + message_validation)
     
-    
+    # Instaciar el bot de telegram
+    token_telegram_bot = self.info_portal.get("token_telegram_bot", "")
+    chat_id_telegram = self.info_portal.get("chat_id_telegram", "")
 
+    telegram_bot = TelegramBot(token_telegram_bot)
 
+    envio = telegram_bot.enviar_mensaje_con_archivos(chat_id_telegram, message_validation, screenshots_table)
+    if envio:
+      logger.info("Resultados enviados por Telegram exitosamente.")
+    else:
+      logger.warning("No se pudieron enviar los resultados por Telegram.")
+      # Enviar mensaje simple sin archivos
+      message_validation += "\n\n(No se pudieron enviar las capturas de pantalla adjuntas, validar logs.)"
+      telegram_bot.enviar_mensaje(chat_id_telegram, message_validation)
 
-
-    # Seleccionar factura, marcar casillas
-    self.select_invoice()
-    # Procesar pago
-    time_loading_checkout = self.process_payment()
-    # Cancelar el pago para no completar la transacción y volver al portal
-    self.return_to_portal()
-    logger.info(f"Tiempo de carga del checkout: {time_loading_checkout:.2f} segundos.")
-    # Generar captura de pantalla final
-    screenshot_path=self.take_screenshot("final_portal_bancoomeva", full_page=False)
-    # Enviar correo con resultados
-    # _send_success_notification()
-    return {
-              'status': 'SUCCESS',
-              'screenshot_path': screenshot_path,
-              'task_id': self.task_id
-          }
 
   def execute_validation_reports(self):
     """
@@ -448,15 +641,16 @@ class ValidationPortalPDPReports(BaseFlowTask):
       self.init_login()
 
       while True:
-        # Recargar cada 60 segundos la pagina para mantener la sesión activa
+        # Recargar cada 30 segundos la pagina para mantener la sesión activa
         self.page.reload()
 
         # Realizar la validacion del reporte
-        if self.info_portal.get("execute_report_validation", True):
+        minuto_actual = datetime.now().minute
+        if minuto_actual == 1:
           self.execute_validation_reports()
-        # Esperar 60 segundos
-        logger.info(f"Esperando 60 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
-        sleep(60)
+        # Esperar 30 segundos
+        logger.info(f"Esperando 30 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+        sleep(50)
 
       
     

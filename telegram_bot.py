@@ -1,6 +1,9 @@
 import requests
 import json
+import logging
 
+# Inicialización del logger
+logger = logging.getLogger(__name__)
 
 class TelegramBot:
   """"Clase para interactuar con la API de Telegram y enviar mensajes y archivos.
@@ -34,36 +37,42 @@ class TelegramBot:
         texto (str): Contenido del mensaje a enviar.
         archivos (list[str]): Lista de rutas de archivos a adjuntar.
     """
-    if not archivos:
-      return self.enviar_mensaje(chat_id, texto)
-
-    url = self.base_url + "sendMediaGroup"
-    media = []
-
-    for i, archivo in enumerate(archivos):
-      media_item = {
-          "type": "document",
-          "media": f"attach://{archivo}"
-      }
-      if i == len(archivos) - 1:
-        media_item["caption"] = texto
-        media_item["parse_mode"] = "Markdown"
-      media.append(media_item)
-
-    files = {}
-    opened_files = []
     try:
-      for archivo in archivos:
-        f = open(archivo, 'rb')
-        opened_files.append(f)
-        files[archivo] = f
+      if not archivos:
+        return self.enviar_mensaje(chat_id, texto)
 
-      data = {"chat_id": chat_id, "media": json.dumps(media)}
-      response = requests.post(url, data=data, files=files)
-      return response.json()
-    finally:
-      for f in opened_files:
-        f.close()
+      url = self.base_url + "sendMediaGroup"
+      media = []
+      files = {}
+      opened_files = []
+      try:
+        for i, archivo in enumerate(archivos):
+          # Usar un nombre de archivo seguro para el adjunto
+          attachment_key = f"file_{i}"
+          
+          media_item = {
+              "type": "document",
+              "media": f"attach://{attachment_key}"
+          }
+          if i == len(archivos) - 1:
+            media_item["caption"] = texto
+            media_item["parse_mode"] = "Markdown"
+          media.append(media_item)
+
+          f = open(archivo, 'rb')
+          opened_files.append(f)
+          files[attachment_key] = f
+
+        data = {"chat_id": chat_id, "media": json.dumps(media)}
+        response = requests.post(url, data=data, files=files)
+        response.raise_for_status()
+        return True
+      finally:
+        for f in opened_files:
+          f.close()
+    except Exception as e:
+      logger.exception(f"Error al enviar mensaje con archivos: {str(e)}")
+      return False
 
 
 if __name__ == "__main__":
