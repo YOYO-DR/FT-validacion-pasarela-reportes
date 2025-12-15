@@ -8,10 +8,8 @@ from telegram_bot import TelegramBot
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError, expect
 from constans import IGNORE_COMERCIOS_VALIDATIONS, MAX_VALUES_PER_PAGE, SELECTOR_REPORT_CONSULT, SELECTORS_REPORT_CONSULT_OPTIONS, SELECTOR_WAIT_LOADING, ROWS_TABLE_REPORT_CONSULT
 
-# Configuración global del logger
-logging.basicConfig(level=logging.INFO)
+# Inicialización del logger
 logger = logging.getLogger(__name__)
-
 
 class BaseFlowTask:
   """

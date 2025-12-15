@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 
 from telegram_bot import TelegramBot
 
-# Inicialización del logger
+# Configuración global del logger
+logging.basicConfig(
+  level=logging.INFO, format="%(levelname)s:%(name)s:%(funcName)s:%(message)s"
+)
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
