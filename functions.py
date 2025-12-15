@@ -3,7 +3,10 @@ import json
 import base64
 import time
 from urllib.parse import quote
+import logging
 
+# Inicializar logger
+logger = logging.getLogger(__name__)
 
 def xor_encrypt(text, key):
     """Aplica XOR entre el texto y la clave de forma circular (simétrico)"""
@@ -143,7 +146,7 @@ def delete_files_dir_time(dir_path, max_age_minutes):
     max_age_seconds = max_age_minutes * 60
     
     if not os.path.isdir(dir_path):
-        print(f"⚠️ El directorio {dir_path} no existe.")
+        logger.warning(f"⚠️ El directorio {dir_path} no existe.")
         return
     
     for filename in os.listdir(dir_path):
@@ -154,6 +157,6 @@ def delete_files_dir_time(dir_path, max_age_minutes):
             if file_age > max_age_seconds:
                 try:
                     os.remove(file_path)
-                    print(f"🗑️ Archivo eliminado: {file_path}")
+                    logger.info(f"🗑️ Archivo eliminado: {file_path}")
                 except Exception as e:
-                    print(f"❌ No se pudo eliminar {file_path}: {e}")
+                    logger.error(f"❌ No se pudo eliminar {file_path}: {e}")

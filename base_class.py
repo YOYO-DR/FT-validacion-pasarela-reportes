@@ -696,7 +696,13 @@ class ValidationPortalPDPReports(BaseFlowTask):
 
         # Limpiar carpeta screenshots, de archivos que lleven más de 24 horas
         if self.screenshot_dir:
-          delete_files_dir_time(self.screenshot_dir, max_age_minutes=60 * 24)
+          try:
+            delete_files_dir_time(self.screenshot_dir, max_age_minutes=60 * 24)
+          except Exception as e:
+            logger.warning(
+              f"No se pudo limpiar la carpeta de capturas: {str(e)}")
+            pass
+        # Esperar 50 segundos antes de la siguiente recarga
         sleep(50)
 
     except Exception as e:
