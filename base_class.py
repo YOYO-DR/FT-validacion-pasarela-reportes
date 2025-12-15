@@ -384,9 +384,12 @@ class ValidationPortalPDPReports(BaseFlowTask):
       if comercio in IGNORE_COMERCIOS_VALIDATIONS.get("failures_vs_approvals", []):
         logger.info(f"Ignorando validación para el comercio: {comercio}")
         continue
-      aprobadas = int(row["# Aprobadas"].replace(",", "") or "0")
-      fallidas = int(row["# Fallidas"].replace(",", "") or "0")
-      rechazadas = int(row["# Rechazada"].replace(",", "") or "0")
+      aprobadas = int(row["# Aprobadas"].replace(
+        ",", "").replace(".", "") or "0")
+      fallidas = int(row["# Fallidas"].replace(
+        ",", "").replace(".", "") or "0")
+      rechazadas = int(row["# Rechazada"].replace(
+        ",", "").replace(".", "") or "0")
 
       if fallidas > aprobadas or rechazadas > aprobadas:
         comersios_with_issues.append(comercio)
@@ -635,7 +638,6 @@ class ValidationPortalPDPReports(BaseFlowTask):
     logger.info("Resultados de la validación:\n" + message_validation)
 
     # Instaciar el bot de telegram
-    token_telegram_bot = self.info_portal.get("token_telegram_bot", "")
     chat_id_telegram = self.info_portal.get("chat_id_telegram", "")
 
     envio = self.telegram_bot.enviar_mensaje_con_archivos(
@@ -690,6 +692,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
         minuto_actual = datetime.now().minute
         if minuto_actual == 1:
           self.execute_validation_reports()
+        self.execute_validation_reports()
         # Esperar 30 segundos
         logger.info(
           f"Esperando 30 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
@@ -713,6 +716,10 @@ class ValidationPortalPDPReports(BaseFlowTask):
           "error_portal_bancoomeva", error=True, full_page=False)
       except Exception:
         screenshot_path = None
+      # Enviar mensaje de error por telegram
+      error_message = f"❌ Error durante la ejecución de la tarea de validación del portal PDP: {str(e)}"
+      self.telegram_bot.enviar_mensaje(
+        self.info_portal.get("chat_id_telegram", ""), error_message)
       return {
           'status': 'ERROR',
           'screenshot_path': screenshot_path,
