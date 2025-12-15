@@ -686,7 +686,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
 
       while True:
         # Recargar cada 30 segundos la pagina para mantener la sesión activa
-        self.page.reload()
+        self.page.reload(timeout=self.max_wait)
 
         # Realizar la validacion del reporte
         minuto_actual = datetime.now().minute
