@@ -127,4 +127,33 @@ def get_params_encrypt(url, jwt_token, key_encryption, verify_ssl=True):
         import traceback
         traceback.print_exc()
         return None, None, None
+
+
+def delete_files_dir_time(dir_path, max_age_minutes):
+    """
+    Elimina archivos en un directorio que sean más antiguos que max_age_minutes.
     
+    :param dir_path: Ruta del directorio a limpiar
+    :param max_age_minutes: Edad máxima en minutos para conservar archivos
+    """
+    import os
+    import time
+    
+    current_time = time.time()
+    max_age_seconds = max_age_minutes * 60
+    
+    if not os.path.isdir(dir_path):
+        print(f"⚠️ El directorio {dir_path} no existe.")
+        return
+    
+    for filename in os.listdir(dir_path):
+        file_path = os.path.join(dir_path, filename)
+        
+        if os.path.isfile(file_path):
+            file_age = current_time - os.path.getmtime(file_path)
+            if file_age > max_age_seconds:
+                try:
+                    os.remove(file_path)
+                    print(f"🗑️ Archivo eliminado: {file_path}")
+                except Exception as e:
+                    print(f"❌ No se pudo eliminar {file_path}: {e}")
