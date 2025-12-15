@@ -447,6 +447,9 @@ class ValidationPortalPDPReports(BaseFlowTask):
       # Abrir el dropdown de estados
       self.click_first_visible_match("[id$='form:txtEstado_label']")
 
+      # Esperar 1 segundo
+      sleep(1)
+
       # Hacer clic en el estado específico
       self.click_first_visible_match(f"[data-label='{state_equiv}']")
 
@@ -500,9 +503,10 @@ class ValidationPortalPDPReports(BaseFlowTask):
       if time_elapsed_text == "":
         # Recorrer la fila para ver si hay un valor en la columna de hora transcurrido
         for i in range(11):
-          cell_text = last_row.locator("td").nth(i).inner_text().strip()
+          cell_text = last_row.locator("td").nth(
+            i).inner_text().strip().replace(".", "")
           if cell_text != "":
-            if "PM" in cell_text or "AM" in cell_text:
+            if " PM" in cell_text or " AM" in cell_text:
               try:
                 time_elapsed_text = datetime.strptime(cell_text, "%I:%M:%S %p")
               except Exception:
@@ -650,6 +654,140 @@ class ValidationPortalPDPReports(BaseFlowTask):
       message_validation += "\n\n(No se pudieron enviar las capturas de pantalla adjuntas, validar logs.)"
       self.telegram_bot.enviar_mensaje(chat_id_telegram, message_validation)
 
+  def validate_conceptos_bancoomeva(self):
+    """
+    Valida que hayan transacciones aprobadas para Conceptos de Bancoomeva,
+    que no haya más de 1 hora sin transacciones aprobadas.
+    """
+    logger.info(
+      "Validando transacciones aprobadas para Conceptos de Bancoomeva...")
+
+    validation_passed = False
+
+    # Navegar a la vista de Registro Por Fecha
+    self.open_report_view("Registros Por Fecha")
+
+    # Seleccionar el comercio Bancoomeva en el filtro
+    comercio_name = "BANCOOMEVA - RECAUDOS CONCEPTOS COOMEVA"
+
+    # Abrir el dropdown de comercios
+    self.click_first_visible_match("[id$='form:txtComercio_label']")
+
+    # Esperar 0.5 segundos
+    sleep(0.5)
+
+    # Hacer clic en el comercio específico
+    self.click_first_visible_match(f"[data-label='{comercio_name}']")
+
+    # Esperar 3 segundo
+    sleep(3)
+
+    # Abrir el dropdown de estados
+    self.click_first_visible_match("[id$='form:txtEstado_label']")
+
+    # Esperar 0.5 segundos
+    sleep(0.5)
+
+    # Hacer clic en el estado "APROBADO"
+    self.click_first_visible_match(f"[data-label='APROBADO']")
+
+    # Ejecutar la consulta
+    self.click_first_visible_match("button span.fa-search")
+
+    # Esperar a que cargue la tabla de resultados
+    self.wait_loading()
+
+    # obtener la cantidad de registros
+    paginator_text = self.page.locator(".ui-paginator-current").inner_text()
+    match = re.search(r'\((\d+)\s+registros\)', paginator_text)
+    num_rows = 0
+
+    if match:
+      num_rows = int(match.group(1))
+    if num_rows == 0:
+      logger.warning(
+        f"No hay registros para el comercio '{comercio_name}'.")
+    logger.info(
+      f"Validando tiempo desde la última transacción aprobada para el comercio '{comercio_name}'...")
+
+    # Obtener el primer registro aprobado
+    table_locator = self.page.locator(".ui-datatable-tablewrapper table")
+
+    # Tomar captura al contenedor de la consulta
+    screenshot_path = os.path.join(
+      self.screenshot_dir, f"conceptos_bancoomeva_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    container_locator = self.page.locator("[id='form:panel_content']")
+    container_locator.screenshot(path=screenshot_path)
+
+    rows = table_locator.locator("tbody tr")
+
+    approved_time = None
+    row = rows.nth(0)
+    # Obtener la columna de hora
+    time_text = row.locator("td").nth(10).inner_text().strip()
+    time_text = time_text.replace(".", "")
+    if time_text == "":
+      # Recorrer la fila para ver si hay un valor en la columna de hora transcurrido
+      for i in range(11):
+        cell_text = row.locator("td").nth(
+          i).inner_text().strip().replace(".", "")
+        if cell_text != "":
+          if " PM" in cell_text or " AM" in cell_text:
+            try:
+              time_text = datetime.strptime(
+                cell_text, "%I:%M:%S %p").strftime("%I:%M:%S %p")
+            except Exception:
+              logger.warning(
+                f"No se pudo convertir el tiempo transcurrido '{cell_text}' a formato de hora.")
+              break
+
+    if time_text == "":
+      logger.warning(
+        f"No se encontró un valor válido de tiempo transcurrido para el comercio '{comercio_name}'.")
+      validation_passed = False
+
+    approved_time = datetime.strptime(time_text, "%I:%M:%S %p")
+    # Ajustar la fecha al día actual
+    now = datetime.now()
+    approved_time = approved_time.replace(year=now.year,
+                                          month=now.month, day=now.day)
+
+    # Calcular el tiempo transcurrido en minutos desde la última aprobación hasta ahora
+    tiempo_transcurrido = (now - approved_time).total_seconds() / 60
+
+    if tiempo_transcurrido > 60:
+      logger.warning(
+        f"El comercio '{comercio_name}' no ha tenido transacciones aprobadas en las últimas 1 hora.")
+    else:
+      validation_passed = True
+
+    logger.info(
+      f"Validación exitosa: El comercio '{comercio_name}' ha tenido transacciones aprobadas en el último hora.")
+    message_validation = ""
+    if validation_passed:
+      logger.info(
+        "Validación de Conceptos de Bancoomeva pasada exitosamente. Enviar mensaje por Telegram con la captura.")
+      message_validation = f"✅ Validación exitosa: El comercio '{comercio_name}' ha tenido transacciones aprobadas en el último hora. Hora de ultima aprobación: {approved_time.strftime('%Y-%m-%d %H:%M:%S')}."
+    else:
+      logger.warning(
+        "Validación de Conceptos de Bancoomeva fallida. Enviar mensaje por Telegram con la captura.")
+      message_validation = f"❌ Validación fallida: El comercio '{comercio_name}' no ha tenido transacciones aprobadas en las últimas 1 hora. Hora de ultima aprobación: {approved_time.strftime('%Y-%m-%d %H:%M:%S') if approved_time else 'N/A'}."
+
+    # Enviar mensaje con resultados por telegram
+    chat_id_telegram = self.info_portal.get("chat_id_telegram", "")
+    envio = self.telegram_bot.enviar_mensaje_con_archivos(
+      chat_id_telegram, message_validation, [screenshot_path])
+
+    if envio:
+      logger.info("Resultados enviados por Telegram exitosamente.")
+    else:
+      logger.warning("No se pudieron enviar los resultados por Telegram.")
+      # Enviar mensaje simple sin archivos
+      message_validation += "\n\n(No se pudieron enviar las capturas de pantalla adjuntas, validar logs.)"
+      self.telegram_bot.enviar_mensaje(chat_id_telegram, message_validation)
+
+    # Dar una espera de 2 segundos
+
   def execute_validation_reports(self):
     """
     Ejecuta la validación del reporte en el portal PDP.
@@ -664,9 +802,19 @@ class ValidationPortalPDPReports(BaseFlowTask):
       # Validar y enviar reporte de la pasarela de pagos de Monitoreo Por Estado
       self.validate_portal_pdp()
 
+      # Validar que hayan transacciones aprobadas para Conveptos de Bancoomeva, que no haya más de 1 hora sin transacciones aprobadas
+      self.validate_conceptos_bancoomeva()
+
+      # Validar carga del checkout atravez del portal de pagos de bancoomeva, esto requiere conexión a vpn por lo que solo se ejecutaria solo en el servidor interno
+      # self.validate_checkout_bancoomeva()
+
     except Exception as e:
       logger.exception(
         "Error durante la validación del reporte en el portal PDP.")
+      # Enviar mensaje de error por telegram
+      error_message = f"❌ Error durante la validación del reporte en el portal PDP: {str(e)}"
+      self.telegram_bot.enviar_mensaje(
+        self.info_portal.get("chat_id_telegram", ""), error_message)
     finally:
       logger.info("Validación del reporte en el portal PDP finalizada.")
       # Enviar mensaje informando finalización de la tarea
@@ -692,6 +840,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
         minuto_actual = datetime.now().minute
         if minuto_actual == 1:
           self.execute_validation_reports()
+        # self.execute_validation_reports()
         # Esperar 30 segundos
         logger.info(
           f"Esperando 30 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
