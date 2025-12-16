@@ -836,7 +836,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
 
         # Realizar la validacion del reporte
         minuto_actual = datetime.now().minute
-        if minuto_actual == 1:
+        if minuto_actual == 59:
           self.execute_validation_reports()
         # self.execute_validation_reports()
         # Esperar 30 segundos
