@@ -431,8 +431,8 @@ class ValidationPortalPDPReports(BaseFlowTask):
     # Hacer clic en el comercio específico
     self.click_first_visible_match(f"[data-label='{comercio_name_upper}']")
 
-    # Dar una espera de 2 segundos
-    sleep(2)
+    # Dar una espera de 5 segundos
+    sleep(5)
 
     # Recorrer los estados a validar para cada consulta a ejecutar
     for state in states_to_check:
@@ -838,7 +838,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
         minuto_actual = datetime.now().minute
         if minuto_actual == 59:
           self.execute_validation_reports()
-        # self.execute_validation_reports()
+        self.execute_validation_reports()
         # Esperar 30 segundos
         logger.info(
           f"Esperando 30 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
