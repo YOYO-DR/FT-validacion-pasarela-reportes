@@ -838,7 +838,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
         minuto_actual = datetime.now().minute
         if minuto_actual == 59:
           self.execute_validation_reports()
-        self.execute_validation_reports()
+        # self.execute_validation_reports()
         # Esperar 30 segundos
         logger.info(
           f"Esperando 30 segundos antes de la siguiente recarga... [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
