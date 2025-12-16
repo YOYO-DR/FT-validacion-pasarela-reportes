@@ -640,17 +640,17 @@ class ValidationPortalPDPReports(BaseFlowTask):
     logger.info("Resultados de la validación:\n" + message_validation)
 
     # Instaciar el bot de telegram
-    chat_id_telegram = self.info_portal.get("chat_id_telegram", "")
+    chat_ids_telegram = self.info_portal.get("chat_ids_telegram", "")
 
     envio = self.telegram_bot.enviar_mensaje_con_archivos(
-      chat_id_telegram, message_validation, screenshots_table)
-    if envio:
+      chat_ids_telegram, message_validation, screenshots_table)
+    if envio and all(envio):
       logger.info("Resultados enviados por Telegram exitosamente.")
     else:
       logger.warning("No se pudieron enviar los resultados por Telegram.")
       # Enviar mensaje simple sin archivos
       message_validation += "\n\n(No se pudieron enviar las capturas de pantalla adjuntas, validar logs.)"
-      self.telegram_bot.enviar_mensaje(chat_id_telegram, message_validation)
+      self.telegram_bot.enviar_mensaje(chat_ids_telegram, message_validation)
 
   def validate_conceptos_bancoomeva(self):
     """
@@ -772,17 +772,17 @@ class ValidationPortalPDPReports(BaseFlowTask):
       message_validation = f"❌ Validación fallida: El comercio '{comercio_name}' no ha tenido transacciones aprobadas en las últimas 1 hora. Hora de ultima aprobación: {approved_time.strftime('%Y-%m-%d %H:%M:%S') if approved_time else 'N/A'}."
 
     # Enviar mensaje con resultados por telegram
-    chat_id_telegram = self.info_portal.get("chat_id_telegram", "")
+    chat_ids_telegram = self.info_portal.get("chat_ids_telegram", "")
     envio = self.telegram_bot.enviar_mensaje_con_archivos(
-      chat_id_telegram, message_validation, [screenshot_path])
+      chat_ids_telegram, message_validation, [screenshot_path])
 
-    if envio:
+    if envio and all(envio):
       logger.info("Resultados enviados por Telegram exitosamente.")
     else:
       logger.warning("No se pudieron enviar los resultados por Telegram.")
       # Enviar mensaje simple sin archivos
       message_validation += "\n\n(No se pudieron enviar las capturas de pantalla adjuntas, validar logs.)"
-      self.telegram_bot.enviar_mensaje(chat_id_telegram, message_validation)
+      self.telegram_bot.enviar_mensaje(chat_ids_telegram, message_validation)
 
     # Dar una espera de 2 segundos
 
@@ -794,7 +794,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
     try:
       # Enviar mensaje informando inicio de la tarea
       self.telegram_bot.enviar_mensaje(
-        self.info_portal.get("chat_id_telegram", ""),
+        self.info_portal.get("chat_ids_telegram", ""),
         "▶️ Iniciando tarea de validación del portal PDP...")
 
       # Validar y enviar reporte de la pasarela de pagos de Monitoreo Por Estado
@@ -812,12 +812,12 @@ class ValidationPortalPDPReports(BaseFlowTask):
       # Enviar mensaje de error por telegram
       error_message = f"❌ Error durante la validación del reporte en el portal PDP: {str(e)}"
       self.telegram_bot.enviar_mensaje(
-        self.info_portal.get("chat_id_telegram", ""), error_message)
+        self.info_portal.get("chat_ids_telegram", ""), error_message)
     finally:
       logger.info("Validación del reporte en el portal PDP finalizada.")
       # Enviar mensaje informando finalización de la tarea
     self.telegram_bot.enviar_mensaje(
-      self.info_portal.get("chat_id_telegram", ""),
+      self.info_portal.get("chat_ids_telegram", ""),
       "⏹️ Finalizando tarea de validación del portal PDP.")
 
   def run(self):
@@ -865,7 +865,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
       # Enviar mensaje de error por telegram
       error_message = f"❌ Error durante la ejecución de la tarea de validación del portal PDP: {str(e)}"
       self.telegram_bot.enviar_mensaje(
-        self.info_portal.get("chat_id_telegram", ""), error_message)
+        self.info_portal.get("chat_ids_telegram", ""), error_message)
       return {
           'status': 'ERROR',
           'screenshot_path': screenshot_path,
@@ -880,4 +880,75 @@ class ValidationPortalPDPReports(BaseFlowTask):
       except Exception as e:
         logger.warning(
           f"No se pudo cerrar el navegador correctamente: {str(e)}")
+
+
+class ValidationPortalBancoomeva(BaseFlowTask):
+  """
+  Clase para validar el flujo del portal Bancoomeva Estado Cuenta.
+  """
+
+  def __init__(self, headless=False, max_wait=30000, info_portal=None, screenshot_dir=None):
+    super().__init__(headless, max_wait, screenshot_dir)
+    self.info_portal = info_portal or {}
+
+  def init_login(self):
+    """
+    Inicializa el proceso de login en el portal Bancoomeva.
+    """
+    logger.info("Iniciando login en el portal Bancoomeva...")
+    url_login = "https://bancoomevapay.ftmicrosites.com/convenios"
+    url_facturas = "https://estado-cuenta.ftmicrosites.com/pagina/facturas"
+    
+    self.launch_browser()
+    self.launch_page(url_login)
+    
+    # Esperar redireccionamiento
+    logger.info("Esperando redireccionamiento a facturas...")
+    self.page.wait_for_url(url_facturas, timeout=60000)
+    
+    # Bug fix: esperar 5 segundos y recargar
+    logger.info("Aplicando fix de recarga (5s)...")
+    sleep(5)
+    self.page.reload()
+    
+    # Validar login exitoso
+    if not self.wait_and_validate_visible("[dataKey='idDocumento']", timeout=self.max_wait):
+      raise Exception("No se pudo validar el login (elemento [dataKey='idDocumento'] no encontrado).")
+      
+    logger.info("Login exitoso en Bancoomeva.")
+
+  def run(self):
+    """
+    Ejecuta la validación continua del portal.
+    """
+    try:
+      self.init_login()
+      
+      while True:
+        logger.info(f"Esperando 30 segundos para recarga... [{datetime.now().strftime('%H:%M:%S')}]")
+        sleep(30)
+        
+        logger.info("Recargando página...")
+        self.page.reload()
+        
+        # Validar que no estemos en el login
+        current_url = self.page.url
+        if "bancoomevapay.ftmicrosites.com/convenios" in current_url:
+             raise Exception("La sesión se cerró, redireccionado al login.")
+             
+        # Validar elemento de nuevo por si acaso
+        if not self.wait_and_validate_visible("[dataKey='idDocumento']", timeout=10000):
+             logger.warning("Elemento de validación no visible tras recarga.")
+
+    except Exception as e:
+      logger.exception("Error en ValidationPortalBancoomeva")
+      try:
+        self.take_screenshot("error_bancoomeva", error=True)
+      except:
+        pass
+      raise
+    finally:
+      try:
+        self.close_browser()
+      except:
         pass

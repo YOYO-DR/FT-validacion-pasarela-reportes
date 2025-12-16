@@ -18,9 +18,10 @@ if __name__ == "__main__":
 
   info_portal = {
     "url_portal_pdp": "https://ftpayment.co/FTAdmon_Payment-web/login.xhtml",
-    "chat_id_telegram": os.getenv("CHAT_ID_YOINER", ""),
+    "chat_ids_telegram": os.getenv("CHAT_ID_YOINER", "").split(","),
     "telegram_bot": TelegramBot(os.getenv("TOKEN_BOT_TELEGRAM", ""))
   }
+  # TODO: implementar el SessionManager para varias pestañas con esto https://chatgpt.com/c/69402eba-98d8-832d-8b1f-d8ecd8a2fc7c
   task = ValidationPortalPDPReports(
     headless=False, info_portal=info_portal, screenshot_dir="./screenshots", max_wait=60 * 1000)
 
