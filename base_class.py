@@ -506,7 +506,7 @@ class ValidationPortalPDPReports(BaseFlowTask):
           if cell_text != "":
             if " PM" in cell_text or " AM" in cell_text:
               try:
-                time_elapsed_text = datetime.strptime(cell_text, "%I:%M:%S %p")
+                time_elapsed_text = cell_text
               except Exception:
                 logger.warning(
                   f"No se pudo convertir el tiempo transcurrido '{cell_text}' a formato de hora.")
