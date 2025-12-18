@@ -235,9 +235,9 @@ class ValidationPortalPDPReports(BaseFlowTask):
     self.launch_browser()
     self.launch_page(url_login)
 
-    # Esperar a que se redireccione al index después del login, esperar almenos 60 segundos
+    # Esperar a que se redireccione al index después del login
     self.page.wait_for_url(
-      "https://ftpayment.co/FTAdmon_Payment-web/pages/index.xhtml", timeout=60 * 1000)
+      "https://ftpayment.co/FTAdmon_Payment-web/pages/index.xhtml", timeout=self.max_wait)
 
     # Validar que se haya cargado el elemento principal del portal
     if not self.wait_and_validate_visible(".ui-panel-content h1", timeout=self.max_wait):
